@@ -1,16 +1,11 @@
-import os
+import os, time, zmq, iota, api, math
 
 import networkx as nx
-import time
 
-import zmq
 from terminaltables import AsciiTable
-
-import iota
 
 import analytics
 from transaction import transaction
-import api
 
 MARK_AS_START = 0
 
@@ -18,25 +13,26 @@ MARK_AS_START = 0
 class tangle:
 
 
-    def __init__(self,config_map_global):
+    def __init__(self,config):
 
         #filesystem
-        self.directory = config_map_global['--export_folder']
+        self.directory = config.get("iri","export_folder")
         self.output_short = './table.out'
         self.output_full  = './table.full'
 
         #zmq
-        self.subscribe = config_map_global['--subscribe']
+        self.subscribe_port = config.get("zmq",'port')
+        self.subscribe_ip = config.get("zmq",'ip')
         self.topic = "tx"
 
         #parser
-        self.resolution = int(config_map_global['--interval'])
+        self.resolution = int(config.get('iri','interval'))
         self.res_ns = self.resolution * 1000* 1000
         self.prev_timestamp = 0
 
         #graph
         self.graph = nx.MultiDiGraph()
-        if (config_map_global['--testnet']):
+        if (int(config.get('iri','testnet'))):
             self.COOR = 'XNZBYAST9BETSDNOVQKKTBECYIPMF9IPOZRWUPFQGVH9HJW9NDSQVIPVBWU9YKECRYGDSJXYMZGHZDXCA'
             self.testnet = True
         else:
@@ -44,7 +40,7 @@ class tangle:
             self.testnet = False
         self.all_nines = '999999999999999999999999999999999999999999999999999999999999999999999999999999999'
         self.first = []
-        self.prune = config_map_global['--prune']
+        self.prune = config.get('iri','prune')
         self.milestones = {}
 
         self.latest_milestone = 0
@@ -53,7 +49,7 @@ class tangle:
         self.pruned_tx = 0
 
         #analytics
-        self.analytics = analytics.analytics(self,config_map_global['--width'],config_map_global['--poisson'])
+        self.analytics = analytics.analytics(self,config)
 
         #api
         self.milestone_to_broadcast_after = 0
@@ -66,9 +62,9 @@ class tangle:
         self.prev_print = 0
         self.lines_to_show = 10
 
-        self.auth_key = config_map_global['--auth_key']
-        self.api_url = config_map_global['--url']
-        self.slack_key = config_map_global['--slack_key']
+        self.auth_key = config.get('slack','auth_key')
+        self.api_url = config.get('slack','url')
+        self.slack_key = config.get('slack','slack_key')
 
 
 
@@ -78,7 +74,7 @@ class tangle:
         self.graph.add_edge(tx.hash, tx.branch_transaction_hash)
         self.graph.add_edge(tx.hash, tx.trunk_transaction_hash)
 
-        if self.subscribe:
+        if self.subscribe_port:
             timestamp = tx.timestamp
         else:
             timestamp = iota.int_from_trits(iota.TryteString(tx.timestamp).as_trits())
@@ -141,7 +137,7 @@ class tangle:
         # Socket to talk to server
         context = zmq.Context()
         socket = context.socket(zmq.SUB)
-        socket.connect("tcp://localhost:%s" % self.subscribe)
+        socket.connect("tcp://%s:%s" % (self.subscribe_ip, self.subscribe_port))
 
         # Subscribe to topic
         topicfilter = self.topic

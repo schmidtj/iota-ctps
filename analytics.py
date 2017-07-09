@@ -1,6 +1,8 @@
 import math
 import networkx as nx
 import time
+from datetime import datetime
+from influxdb import InfluxDBClient
 
 import sys
 from terminaltables import AsciiTable
@@ -26,7 +28,7 @@ def get_poisson_peak(confirmed_times):
 
 class analytics:
 
-    def __init__(self,tangle,do_width,do_poisson):
+    def __init__(self,tangle,config):
         self.tangle = tangle
         self.data = data.data()
         self.counter = 0
@@ -34,8 +36,16 @@ class analytics:
         self.last_slack_broadcast = 0
         self.slack_broadcast_threshold = 10 * 60 * 1000 * 1000
 
-        self.do_width = do_width
-        self.do_poisson = do_poisson
+        self.do_width = int(config.get('iri','width'))
+        self.do_poisson = int(config.get('iri','poisson'))
+        
+        self.use_influx = int(config.get('influxdb','write_to_influx'))
+        
+        self.influx_client = InfluxDBClient(config.get('influxdb','ip'),config.get('influxdb','port'),
+                                            config.get('influxdb','user'),config.get('influxdb','pass'),
+                                            config.get('influxdb','db'))
+        
+        self.config = config
 
         self.confirmed = set()
 
@@ -195,13 +205,14 @@ class analytics:
         data = self.data
         index = self.data.last_index()
         json = {
-            'ctps': data.ctps[index],
-            'tps':  data.tps[index],
+            'ctps': float(data.ctps[index]),
+            'tps':  float(data.tps[index]),
             'numTxs': data.numTxs[index],
             'numCtxs': data.numCtxs[index],
-            'cRate': data.cRate[index],
-            'maxCtps': data.maxCtps[index],
-            'maxTps': data.maxTps[index]
+            'width' : data.width[index],
+            'cRate': float(data.cRate[index].replace('%','')),
+            'maxCtps': float(data.maxCtps[index]),
+            'maxTps': float(data.maxTps[index])
 
         }
         #write feed to file
@@ -234,6 +245,19 @@ class analytics:
             if self.tangle.slack_key and self.tangle.latest_milestone_index > self.tangle.milestone_to_broadcast_after:
                 res = api.API_slack(slack_string, self.tangle.slack_key)
                 print res
+                
+        if self.use_influx:
+            json_body = [
+                {
+                    "measurement": "transaction",
+                    "tags": {
+                        "node_address" : self.config.get('influxdb','tag_label')
+                    },
+                    "time": time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(self.tangle.prev_timestamp / 1000 / 1000)),
+                    "fields": json
+                }
+            ]
+            self.influx_client.write_points(json_body)
 
 
     def print_stats(self):
@@ -267,7 +291,7 @@ class analytics:
         hist_unconfirmed_non_tips = {}
         hist_milestone_data = {}
 
-        for n in self.tangle.graph.nodes():
+        for n in self.tangle.graph.nodes_iter():
             if not self.tangle.graph.node[n].has_key('height'):
                 continue
 
@@ -364,7 +388,7 @@ class analytics:
 
 
     def mark_height(self):
-        for n in self.tangle.graph.nodes():
+        for n in self.tangle.graph.nodes_iter():
             if self.tangle.graph.node[n].has_key('height'):
                 continue
             if n == self.tangle.all_nines or n in self.tangle.first:

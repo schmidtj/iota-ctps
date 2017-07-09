@@ -60,7 +60,8 @@ class data:
                   self.maxCtps[i]
                   ]
         return output
-
+     
+    
     def last_index(self):
         return self.counter
 
