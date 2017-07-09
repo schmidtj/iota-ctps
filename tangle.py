@@ -151,6 +151,10 @@ class tangle:
             string = socket.recv()
             try:
                 topic, hash, address, value, tag, timestamp, current_index, last_index, bundle, trunk, branch = string.split()
+                
+                # check for rogue timestamps
+                timestamp = timestamp[:10]
+                
                 # parse fields
                 tx = transaction(hash, address, value, tag, timestamp, current_index, last_index, bundle, trunk, branch)
                 # add to graph
